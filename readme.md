@@ -8,6 +8,7 @@ Modernized implementation of the original Selenium script, now exposed as an HTT
 - Artifacts stored under `storage/jobs/<job_id>.zip`
 - Download links expire automatically (default 1 hour; configurable)
 - Signed download tokens (SQLite-backed) keep internal API endpoints hidden
+- Licensed under the MIT License (see `LICENSE`)
 
 ## Quick start (Docker)
 
@@ -77,6 +78,3 @@ Configure a different backend by exporting `VITE_API_PROXY` or `VITE_API_BASE`.
 - Container image includes Chromium/Chromedriver; keep them updated for security.
 - Jobs are stored in memory; restart wipes the queue (artifacts stay on disk).
 
-# Legacy script
-
-The original `ripper.py` (CLI variant) remains in the repository for reference. It is no longer maintained now that the HTTP API supersedes it.
