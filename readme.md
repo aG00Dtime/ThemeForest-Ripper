@@ -1,33 +1,80 @@
-# ThemeForest Ripper
-[![](https://www.jack-the-ripper.org/images/ghost-image.jpg))](http://blog.danishjoshi.com/2019/04/24/selenium-script-to-download-any-theme/)
+# Theme Ripper
 
-Python script to download any theme (non-WordPress) from ThemeForest using selenium.
+Modernized implementation of the original Selenium script, now exposed as an HTTP API with a React dashboard. Launch a rip job against any ThemeForest preview, watch live logs, and download the mirrored archive once the job completes.
 
-## Usage
+- FastAPI backend with structured jobs/logging
+- React + Vite control panel with live polling and auto-scroll logs
+- Docker-first workflow (Chromium + chromedriver bundled)
+- Artifacts stored under `storage/jobs/<job_id>.zip`
+- Download links expire automatically (default 1 hour; configurable)
+- Signed download tokens (SQLite-backed) keep internal API endpoints hidden
 
-- Clone the GitHub repository `clone https://github.com/SU1199/ThemeForest-Ripper.git`
-- Download and install [chrome-webdriver](http://chromedriver.chromium.org/downloads) for your chrome version.
-- Open virtualenv `source bin/activate`
-- Install selenium `pip3 install selenium`
+## Quick start (Docker)
 
-#### Command - `python3 ripper.py <theme-url> <download-location>`
-##### Example - `python3 ripper.py https://themeforest.net/item/hervin-creative-ajax-portfolio-showcase-slider-template/23559741?s_rank=1 ../extract`
+```bash
+docker compose up --build
+```
 
-#### [Demo Video](https://www.youtube.com/watch?v=kEI3jOp1ygo&feature=youtu.be)
+Services:
+- `api`: FastAPI server on `http://localhost:8000`
+- `web`: Static React UI on `http://localhost:8080` (proxies `/v1` calls to the API)
 
-## How to prevent theme piracy
-Short answer - You can't. All the major components of themes (js/css/html) are rendered on the client side. So no theme is fully immune to web-scraping.
-However you can make it difficult. Here are some ideas -
+Job artifacts persist in the host `./storage` directory.
 
-- Use [unescape](https://www.w3schools.com/jsref/jsref_unescape.asp) to encrypt html and use JavaScript to decrypt html on page load.
-- Use a cdn with user authentication to deliver resources.
-- Use website encryption software(?) . I am a bit sceptical of those.
-- Add some tracking code to the theme to track the websites using the theme without permission and file cease and desist against defaulters (near impossible).
+## Local development
 
-## What is envato doing about it ?
-- Making/Designing themes and templates is the major source of income for many web-designers. ThemeForest being the mediator of commerce has the main responsibility to protect the interests of creators. They should have a solution in place for developers to protect their creations against theft. 
-- Extended support and extended licences are not enough given that envato rarely enforces the licence terms and majority of people don't buy extended license in the first place.
+### Backend (FastAPI)
+```bash
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
 
-[What do you guys think is the best way to protect themes from piracy ?](mailto:hello@danishjoshi.com)
+Requirements:
+- Python 3.11+
+- Chromium + chromedriver on `PATH` (or set `RIPPER_CHROMEDRIVER_PATH`)
+- `wget`
 
-Maybe i'll release a cloud hosted web-app of this script in the future..
+Key environment variables:
+- `RIPPER_STORAGE_DIR` (default `storage/`)
+- `RIPPER_MAX_WORKERS` (defaults to 2)
+- `RIPPER_QUEUE_LIMIT` (defaults to 4)
+- `RIPPER_JOB_TTL_SECONDS` (defaults to 3600) — retention window for completed jobs and their archives
+
+API documentation lives in `docs/api.md`.
+
+### Frontend (Vite + React)
+```bash
+cd frontend
+npm install
+npm run dev -- --host
+```
+
+By default the dev server proxies `/v1/*` requests to `http://localhost:8000`.
+Configure a different backend by exporting `VITE_API_PROXY` or `VITE_API_BASE`.
+
+### Running tests & checks
+
+- Backend: `python -m compileall backend` (syntax), add pytest/ruff as needed.
+- Frontend: `npm run build` (type-check + bundle).
+
+## Architecture
+
+- `backend/app/services/rip_runner.py` — wraps Selenium navigation + `wget`.
+- `backend/app/services/job_store.py` — in-memory job metadata and log buffers.
+- `backend/app/api/routes/rips.py` — `/v1/rips` endpoints for create/status/logs/download.
+- `frontend/src/App.tsx` — single-page UI with form, status panel, and log viewer.
+
+Detailed design notes are in `docs/architecture.md`.
+
+## Caveats
+
+- This project rips publicly accessible previews; respect ThemeForest licensing.
+- Container image includes Chromium/Chromedriver; keep them updated for security.
+- Jobs are stored in memory; restart wipes the queue (artifacts stay on disk).
+
+# Legacy script
+
+The original `ripper.py` (CLI variant) remains in the repository for reference. It is no longer maintained now that the HTTP API supersedes it.

@@ -1,0 +1,31 @@
+
+services:
+  api:
+    build:
+      context: ./backend
+    image: theme-ripper-api:dev
+    container_name: theme-ripper-api
+    ports:
+      - "42701:8000"
+    volumes:
+      - ./storage:/app/storage
+    environment:
+      - RIPPER_STORAGE_DIR=/app/storage
+      
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: ./frontend
+    image: theme-ripper-web:dev
+    container_name: theme-ripper-web
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+

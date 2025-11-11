@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyi
+*.log
+.venv/
+storage/
+.pytest_cache/
+dist/
+build/
+node_modules/
+*.egg-info/
+
