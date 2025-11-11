@@ -12,3 +12,5 @@ lib
 .env
 /docs
 storage/tokens.db
+.dstore
+.dstore/
