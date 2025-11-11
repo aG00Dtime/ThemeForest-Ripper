@@ -69,8 +69,6 @@ Configure a different backend by exporting `VITE_API_PROXY` or `VITE_API_BASE`.
 - `backend/app/api/routes/rips.py` — `/v1/rips` endpoints for create/status/logs/download.
 - `frontend/src/App.tsx` — single-page UI with form, status panel, and log viewer.
 
-> The original README acknowledged there’s no foolproof way to prevent ThemeForest assets from being scraped—suggesting obfuscation, authenticated CDNs, or tracking as deterrents, while noting enforcement is difficult.
-
 ## Caveats
 
 - This project rips publicly accessible previews; respect ThemeForest licensing.
