@@ -16,8 +16,9 @@ docker compose up --build
 ```
 
 Services:
-- `api`: FastAPI server on `http://localhost:8000`
-- `web`: Static React UI on `http://localhost:8080` (proxies `/v1` calls to the API)
+- `proxy`: Nginx reverse proxy on `http://localhost:3000` routing `/v1` to the API
+- `api`: FastAPI server (internal port 8000)
+- `web`: Compiled React UI served behind the proxy
 
 Job artifacts persist in the host `./storage` directory.
 
@@ -67,11 +68,12 @@ Configure a different backend by exporting `VITE_API_PROXY` or `VITE_API_BASE`.
 - `backend/app/api/routes/rips.py` — `/v1/rips` endpoints for create/status/logs/download.
 - `frontend/src/App.tsx` — single-page UI with form, status panel, and log viewer.
 
-Detailed design notes are in `docs/architecture.md`.
+> The original README acknowledged there’s no foolproof way to prevent ThemeForest assets from being scraped—suggesting obfuscation, authenticated CDNs, or tracking as deterrents, while noting enforcement is difficult.
 
 ## Caveats
 
 - This project rips publicly accessible previews; respect ThemeForest licensing.
+- Use it for educational and archival purposes only—you’re responsible for complying with all contracts and laws.
 - Container image includes Chromium/Chromedriver; keep them updated for security.
 - Jobs are stored in memory; restart wipes the queue (artifacts stay on disk).
 

@@ -1,3 +1,4 @@
+version: "3.9"
 
 services:
   api:
@@ -6,12 +7,11 @@ services:
     image: theme-ripper-api:dev
     container_name: theme-ripper-api
     ports:
-      - "42701:8000"
+      - "8000"
     volumes:
       - ./storage:/app/storage
     environment:
       - RIPPER_STORAGE_DIR=/app/storage
-      
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
       interval: 30s
@@ -23,9 +23,20 @@ services:
       context: ./frontend
     image: theme-ripper-web:dev
     container_name: theme-ripper-web
-    ports:
-      - "8080:8080"
     depends_on:
       api:
         condition: service_healthy
+
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: theme-ripper-proxy
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    ports:
+      - "3000:8080"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 
