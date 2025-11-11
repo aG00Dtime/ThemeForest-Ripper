@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timedelta, timezone
-from threading import Lock
+from threading import Event, Lock
 from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import uuid4
@@ -20,21 +20,24 @@ class JobStore:
         self._log_limit = log_limit
         self._ttl_seconds = ttl_seconds
         self._tokens = token_store
+        self._cancel_events: Dict[str, Event] = {}
 
     def _utcnow(self) -> datetime:
         return datetime.now(tz=timezone.utc)
 
-    def create(self, theme_url: str) -> Job:
+    def create(self, theme_url: str, session_id: str) -> Job:
         now = self._utcnow()
         job = Job(
             job_id=str(uuid4()),
             theme_url=theme_url,
+            session_id=session_id,
             status=JobStatus.QUEUED,
             created_at=now,
             updated_at=now,
         )
         with self._lock:
             self._jobs[job.job_id] = job
+            self._cancel_events[job.job_id] = Event()
         return copy.deepcopy(job)
 
     def snapshot(self, job_id: str) -> Optional[Job]:
@@ -54,6 +57,7 @@ class JobStore:
             job.status = JobStatus.SUCCEEDED
             job.updated_at = self._utcnow()
             job.artifact_path = artifact_path
+            job.download_size = artifact_path.stat().st_size if artifact_path.exists() else None
             job.expires_at = job.updated_at + timedelta(seconds=self._ttl_seconds)
             job.download_token = self._tokens.issue_token(job_id, job.expires_at)
 
@@ -66,6 +70,19 @@ class JobStore:
             job.expires_at = job.updated_at + timedelta(seconds=self._ttl_seconds)
             job.download_token = None
             job.download_token = self._tokens.issue_token(job_id, job.expires_at)
+            job.cancel_requested = False
+
+    def mark_cancelled(self, job_id: str) -> None:
+        with self._lock:
+            job = self._get(job_id)
+            job.status = JobStatus.CANCELLED
+            job.updated_at = self._utcnow()
+            job.cancel_requested = True
+            job.artifact_path = None
+            job.error = None
+            job.expires_at = None
+            job.download_token = None
+        self._tokens.delete_for_job(job_id)
 
     def append_log(self, job_id: str, level: str, message: str) -> LogEntry:
         entry = LogEntry(
@@ -106,6 +123,33 @@ class JobStore:
                 if job.status in (JobStatus.QUEUED, JobStatus.RUNNING)
             )
 
+    def active_job_for_session(self, session_id: str) -> Optional[Job]:
+        with self._lock:
+            for job in self._jobs.values():
+                if job.session_id == session_id and job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+                    return copy.deepcopy(job)
+        return None
+
+    def request_cancel(self, job_id: str) -> bool:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return False
+            event = self._cancel_events.get(job_id)
+            if event is None:
+                return False
+            job.cancel_requested = True
+            event.set()
+            if job.status == JobStatus.QUEUED:
+                job.status = JobStatus.CANCELLED
+                job.updated_at = self._utcnow()
+            return True
+
+    def is_cancelled(self, job_id: str) -> bool:
+        with self._lock:
+            event = self._cancel_events.get(job_id)
+            return event.is_set() if event else False
+
     def list_stale_jobs(self, cutoff: datetime) -> List[Job]:
         with self._lock:
             return [
@@ -117,7 +161,10 @@ class JobStore:
     def remove(self, job_id: str) -> None:
         with self._lock:
             self._jobs.pop(job_id, None)
+            event = self._cancel_events.pop(job_id, None)
         self._tokens.delete_for_job(job_id)
+        if event is not None:
+            event.set()
 
     def _get(self, job_id: str) -> Job:
         try:

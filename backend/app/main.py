@@ -1,11 +1,29 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import shutil
 
 from fastapi import FastAPI
 
+def _purge_previous_state(settings: Settings) -> None:
+    if settings.jobs_root.exists():
+        for child in settings.jobs_root.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                try:
+                    child.unlink(missing_ok=False)
+                except FileNotFoundError:
+                    pass
+    if settings.token_db_path.exists():
+        try:
+            settings.token_db_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 from .api.routes import rips
-from .core.config import get_settings
+from .core.config import Settings, ensure_directories, get_settings
 from .services.cleanup import CleanupThread
 from .services.job_store import JobStore
 from .services.rip_runner import RipRunner
@@ -14,6 +32,8 @@ from .services.token_store import TokenStore
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    _purge_previous_state(settings)
+    ensure_directories(settings)
 
     app = FastAPI(
         title="Theme Ripper API",
@@ -49,5 +69,4 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
 

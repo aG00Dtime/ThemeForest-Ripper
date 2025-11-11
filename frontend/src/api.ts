@@ -4,7 +4,7 @@ const apiBase =
   import.meta.env.VITE_API_BASE?.replace(/\/$/, "") ||
   DEFAULT_BASE.replace(/\/$/, "");
 
-export type RipJobStatus = "queued" | "running" | "succeeded" | "failed";
+export type RipJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface RipJobLogEntry {
   cursor: number;
@@ -26,6 +26,7 @@ export interface RipJobView {
   };
   download_url: string | null;
   error: string | null;
+  download_size: number | null;
 }
 
 export interface CreateJobResponse {
@@ -88,5 +89,16 @@ export async function fetchLogs(
   }
   const json: JobLogsResponse = await res.json();
   return json.data;
+}
+
+export async function cancelJob(jobId: string): Promise<void> {
+  const res = await fetch(`${apiBase}/v1/rips/${jobId}`, {
+    method: "DELETE"
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const message = payload?.error?.message ?? `Request failed (${res.status})`;
+    throw new Error(message);
+  }
 }
 

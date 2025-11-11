@@ -20,6 +20,10 @@ from ..core.config import Settings
 from .job_store import JobStore
 
 
+class JobCancelled(Exception):
+    """Raised when a job cancellation is requested."""
+
+
 class RipRunner:
     """Encapsulates the Selenium + wget workflow for a single job."""
 
@@ -32,7 +36,9 @@ class RipRunner:
         mirror_dir = storage_dir / "mirror"
 
         try:
+            self._ensure_not_cancelled(job_id)
             self._store.mark_running(job_id)
+            self._ensure_not_cancelled(job_id)
             self._store.append_log(job_id, "info", "Job accepted, starting extraction")
 
             mirror_dir.mkdir(parents=True, exist_ok=True)
@@ -41,15 +47,19 @@ class RipRunner:
                 preview_url = theme_url
                 self._store.append_log(job_id, "info", "Input URL already points to preview; skipping lookup")
             else:
+                self._ensure_not_cancelled(job_id)
                 preview_url = self._with_driver(
                     "Resolve preview URL", job_id, lambda driver: self._get_preview_url(driver, theme_url)
                 )
                 self._store.append_log(job_id, "info", f"Resolved preview URL {preview_url}")
 
+            self._ensure_not_cancelled(job_id)
             full_frame_url = self._with_driver("Resolve full frame URL", job_id, lambda driver: self._get_full_frame_url(driver, preview_url))
             self._store.append_log(job_id, "info", f"Resolved frame URL {full_frame_url}")
 
+            self._ensure_not_cancelled(job_id)
             self._mirror_site(job_id, full_frame_url, mirror_dir)
+            self._ensure_not_cancelled(job_id)
 
             zip_path = self._create_archive(storage_dir, mirror_dir, job_id)
             self._store.append_log(job_id, "info", f"Created archive {zip_path.name}")
@@ -58,6 +68,12 @@ class RipRunner:
 
             self._store.mark_succeeded(job_id, zip_path)
             self._store.append_log(job_id, "info", "Job completed successfully")
+        except JobCancelled:
+            self._store.append_log(job_id, "info", "Job cancelled by user")
+            self._store.mark_cancelled(job_id)
+            with suppress(Exception):
+                shutil.rmtree(storage_dir, ignore_errors=True)
+            self._store.remove(job_id)
         except Exception as exc:  # noqa: BLE001 - surface all errors to client
             self._store.append_log(job_id, "error", str(exc))
             self._store.mark_failed(job_id, str(exc))
@@ -69,6 +85,7 @@ class RipRunner:
         driver = self._build_driver(job_id)
         try:
             self._store.append_log(job_id, "info", f"{description}")
+            self._ensure_not_cancelled(job_id)
             return func(driver)
         except WebDriverException as exc:
             raise RuntimeError(f"{description} failed: {exc.msg}") from exc
@@ -151,10 +168,17 @@ class RipRunner:
                 assert process.stdout is not None
                 last_url: str | None = None
                 for line in process.stdout:
+                    if self._store.is_cancelled(job_id):
+                        process.terminate()
+                        with suppress(subprocess.TimeoutExpired):
+                            process.wait(timeout=5)
+                        raise JobCancelled
                     entries, last_url = self._simplify_wget_line(line, last_url)
                     for level, message in entries:
                         self._store.append_log(job_id, level, message)
                 retcode = process.wait()
+                if self._store.is_cancelled(job_id):
+                    raise JobCancelled
                 if retcode == 8:
                     self._store.append_log(
                         job_id,
@@ -165,6 +189,10 @@ class RipRunner:
                     raise RuntimeError(f"wget exited with code {retcode}")
         except FileNotFoundError as exc:
             raise RuntimeError("wget is required but not installed or not in PATH") from exc
+
+    def _ensure_not_cancelled(self, job_id: str) -> None:
+        if self._store.is_cancelled(job_id):
+            raise JobCancelled
 
     def _create_archive(self, storage_dir: Path, source_dir: Path, job_id: str) -> Path:
         archive_path = storage_dir / f"{job_id}.zip"

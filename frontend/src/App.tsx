@@ -21,6 +21,7 @@ import { FaGithub } from "react-icons/fa6";
 import {
   RipJobLogEntry,
   RipJobView,
+  cancelJob,
   createJob,
   fetchJob,
   fetchLogs
@@ -34,14 +35,16 @@ const STATUS_LABEL: Record<RipJobView["status"], string> = {
   queued: "Queued",
   running: "Running",
   succeeded: "Completed",
-  failed: "Failed"
+  failed: "Failed",
+  cancelled: "Cancelled"
 };
 
 const STATUS_COLOR: Record<RipJobView["status"], string> = {
   queued: "purple",
   running: "blue",
   succeeded: "green",
-  failed: "red"
+  failed: "red",
+  cancelled: "gray"
 };
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -75,6 +78,8 @@ export default function App() {
   const [logEntries, setLogEntries] = useState<RipJobLogEntry[]>([]);
   const [logError, setLogError] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
+  const [isDownloadStarting, setIsDownloadStarting] = useState(false);
   const logCursorRef = useRef(0);
   const jobRef = useRef<RipJobView | null>(null);
   const logContainerRef = useRef<HTMLDivElement | null>(null);
@@ -149,6 +154,12 @@ export default function App() {
   useEffect(() => {
     jobRef.current = job;
   }, [job]);
+
+  useEffect(() => {
+    if (job?.status !== "succeeded") {
+      setIsDownloadStarting(false);
+    }
+  }, [job?.status]);
 
   useEffect(() => {
     if (!job) {
@@ -283,7 +294,19 @@ export default function App() {
     }
   };
 
-  const handleClearJob = () => {
+  const handleClearJob = async () => {
+    const jobIsCancellable = job?.status === "queued" || job?.status === "running";
+    if (job && jobIsCancellable) {
+      setIsClearing(true);
+      try {
+        await cancelJob(job.job_id);
+      } catch (error) {
+        setGlobalError((error as Error).message);
+        return;
+      } finally {
+        setIsClearing(false);
+      }
+    }
     window.localStorage.removeItem(STORAGE_KEY);
     setJob(null);
     setLogEntries([]);
@@ -291,10 +314,63 @@ export default function App() {
     setLogError(null);
     setGlobalError(null);
     logCursorRef.current = 0;
+    setThemeUrl("");
   };
 
-  const canSubmit = submission === "idle" && themeUrl.trim().length > 0;
+  const jobInProgress = job?.status === "queued" || job?.status === "running";
+  const canSubmit = submission === "idle" && themeUrl.trim().length > 0 && !jobInProgress;
   const downloadAvailable = Boolean(job?.status === "succeeded" && job.download_url && !isExpired);
+  const [downloadResetTimeout, setDownloadResetTimeout] = useState<number | null>(null);
+  const normalizedDownloadUrl = useMemo(() => {
+    if (!job?.download_url) {
+      return null;
+    }
+    try {
+      const url = new URL(job.download_url, window.location.origin);
+      if (window.location.protocol === "https:") {
+        url.protocol = "https:";
+      }
+      return url.toString();
+    } catch {
+      return job.download_url;
+    }
+  }, [job?.download_url]);
+  const downloadSizeLabel = useMemo(() => {
+    if (!job?.download_size || job.download_size <= 0) {
+      return null;
+    }
+    const units = ["B", "KB", "MB", "GB"];
+    let size = job.download_size;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+    return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  }, [job?.download_size]);
+
+  useEffect(() => {
+    return () => {
+      if (downloadResetTimeout) {
+        window.clearTimeout(downloadResetTimeout);
+      }
+    };
+  }, [downloadResetTimeout]);
+
+  const handleDownloadClick = () => {
+    if (isDownloadStarting || !downloadAvailable) {
+      return;
+    }
+    setIsDownloadStarting(true);
+    if (downloadResetTimeout) {
+      window.clearTimeout(downloadResetTimeout);
+    }
+    const timeoutId = window.setTimeout(() => {
+      setIsDownloadStarting(false);
+      setDownloadResetTimeout(null);
+    }, 8000);
+    setDownloadResetTimeout(timeoutId);
+  };
 
   return (
     <Box
@@ -302,6 +378,11 @@ export default function App() {
       bgGradient={`linear(120deg, ${bgStart} 0%, ${bgEnd} 100%)`}
       py={{ base: 8, md: 12 }}
       px={4}
+      display="flex"
+      flexDirection="column"
+      alignItems="center"
+      justifyContent="center"
+      gap={{ base: 6, md: 8 }}
     >
       <Container maxW="container.lg">
         <Box
@@ -389,6 +470,10 @@ export default function App() {
                         <Text fontSize="sm" color="textSecondary">
                           Rip complete — download available below.
                         </Text>
+                      ) : job.status === "cancelled" ? (
+                        <Text fontSize="sm" color="textSecondary">
+                          Rip cancelled — start a new job to try again.
+                        </Text>
                       ) : null}
                     </Flex>
                   </Stack>
@@ -397,7 +482,11 @@ export default function App() {
                     borderColor="#fe4155"
                     color="#fe4155"
                     _hover={{ bg: "rgba(254,65,85,0.1)" }}
-                    onClick={handleClearJob}
+                    onClick={() => {
+                      void handleClearJob();
+                    }}
+                    isLoading={isClearing}
+                    isDisabled={isClearing}
                   >
                     Clear current job
                   </Button>
@@ -445,25 +534,32 @@ export default function App() {
                   <Heading size="sm" color="textSecondary" textTransform="uppercase" letterSpacing="wide" mb={3}>
                     Download
                   </Heading>
-                  <Stack direction={{ base: "column", sm: "row" }} spacing={4} align={{ base: "stretch", sm: "center" }}>
+                  <Stack
+                    direction={{ base: "column", sm: "row" }}
+                    spacing={4}
+                    align={{ base: "stretch", sm: "center" }}
+                  >
                     <Button
                       as={Link}
-                      href={downloadAvailable ? job?.download_url ?? undefined : undefined}
+                      href={downloadAvailable ? normalizedDownloadUrl ?? undefined : undefined}
                       bg="#fe4155"
                       _hover={{ bg: "#ff6271" }}
                       _active={{ bg: "#d82d44" }}
                       color="white"
                       px={8}
-                      isExternal
-                      isDisabled={!downloadAvailable}
+                      download
+                      isDisabled={!downloadAvailable || isDownloadStarting}
+                      isLoading={isDownloadStarting}
+                      onClick={handleDownloadClick}
                     >
-                      {isExpired ? "Download expired" : "Download zip"}
+                      {isExpired ? "Download expired" : isDownloadStarting ? "Preparing download…" : "Download zip"}
                     </Button>
-                    {expiresAt ? (
-                      <Text fontSize="sm" color="textSecondary">
-                        Link {isExpired ? "expired" : "expires"} {expiresLabel}
-                      </Text>
-                    ) : null}
+                    <Stack spacing={1} color="textSecondary" fontSize="sm">
+                      {downloadSizeLabel ? <Text>{downloadSizeLabel}</Text> : null}
+                      {expiresAt ? (
+                        <Text>Link {isExpired ? "expired" : "expires"} {expiresLabel}</Text>
+                      ) : null}
+                    </Stack>
                   </Stack>
                   {isExpired ? (
                     <Alert status="warning" borderRadius="md" mt={3}>
@@ -496,7 +592,7 @@ export default function App() {
         </Box>
       </Container>
 
-      <Box mt={8} textAlign="center">
+      <Box textAlign="center">
         <Button
           as={Link}
           leftIcon={<FaGithub />}

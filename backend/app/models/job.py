@@ -14,6 +14,7 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass(slots=True)
@@ -28,15 +29,18 @@ class LogEntry:
 class Job:
     job_id: str
     theme_url: str
+    session_id: str
     status: JobStatus
     created_at: datetime
     updated_at: datetime
     logs: list[LogEntry] = field(default_factory=list)
     next_cursor: int = 0
     artifact_path: Optional[Path] = None
+    download_size: Optional[int] = None
     error: Optional[str] = None
     expires_at: Optional[datetime] = None
     download_token: Optional[str] = None
+    cancel_requested: bool = False
 
 
 THEME_HOST_ALLOWLIST = ("themeforest.net", "preview.themeforest.net")
@@ -77,6 +81,7 @@ class JobView(BaseModel):
     log_tail: LogTailDTO
     download_url: Optional[str] = None
     error: Optional[str] = None
+    download_size: Optional[int] = None
 
 
 class JobResponse(BaseModel):
