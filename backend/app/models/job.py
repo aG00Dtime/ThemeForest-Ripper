@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, HttpUrl, model_validator
+from urllib.parse import urlparse
 
 
 class JobStatus(str, Enum):
@@ -57,6 +58,22 @@ class CreateRipRequest(BaseModel):
         if data.theme_url.scheme != "https":
             raise ValueError("URL must use https scheme")
         return data
+    def normalize(self) -> "CreateRipRequest":
+        parsed = urlparse(str(self.theme_url))
+        if parsed.netloc.endswith("themeforest.net") and "full_screen_preview" not in parsed.path:
+            segments = [segment for segment in parsed.path.split("/") if segment]
+            try:
+                item_index = segments.index("item")
+                slug = segments[item_index + 1]
+                item_id = segments[-1]
+            except (ValueError, IndexError):
+                return self
+            candidate = f"https://preview.themeforest.net/item/{slug}/full_screen_preview/{item_id}"
+            try:
+                return CreateRipRequest(theme_url=candidate)
+            except Exception:
+                return self
+        return self
 
 
 class LogEntryDTO(BaseModel):

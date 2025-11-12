@@ -17,7 +17,7 @@ import {
   VStack,
   useToken
 } from "@chakra-ui/react";
-import { FaGithub } from "react-icons/fa6";
+import { FaClipboard, FaGithub } from "react-icons/fa6";
 import {
   RipJobLogEntry,
   RipJobView,
@@ -79,6 +79,7 @@ export default function App() {
   const [logError, setLogError] = useState<string | null>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
+  const [isPasting, setIsPasting] = useState(false);
   const [isDownloadStarting, setIsDownloadStarting] = useState(false);
   const logCursorRef = useRef(0);
   const jobRef = useRef<RipJobView | null>(null);
@@ -372,16 +373,38 @@ export default function App() {
     setDownloadResetTimeout(timeoutId);
   };
 
+  const canUseClipboard =
+    typeof navigator !== "undefined" &&
+    "clipboard" in navigator &&
+    typeof (navigator.clipboard as Clipboard | undefined)?.readText === "function";
+
+  const handlePasteFromClipboard = async () => {
+    if (!canUseClipboard || isPasting) {
+      return;
+    }
+    setIsPasting(true);
+    try {
+      const value = await (navigator.clipboard as Clipboard).readText();
+      if (value) {
+        setThemeUrl(value.trim());
+      }
+    } catch (error) {
+      setGlobalError("Unable to access clipboard. Paste manually instead.");
+    } finally {
+      setIsPasting(false);
+    }
+  };
+
   return (
     <Box
       minH="100vh"
       bgGradient={`linear(120deg, ${bgStart} 0%, ${bgEnd} 100%)`}
-      py={{ base: 8, md: 12 }}
-      px={4}
+      py={{ base: 6, md: 12 }}
+      px={{ base: 3, md: 4 }}
       display="flex"
       flexDirection="column"
       alignItems="center"
-      justifyContent="center"
+      justifyContent={{ base: "flex-start", md: "center" }}
       gap={{ base: 6, md: 8 }}
     >
       <Container maxW="container.lg">
@@ -393,8 +416,8 @@ export default function App() {
           shadow="2xl"
           p={{ base: 6, md: 10 }}
         >
-          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={4}>
-            <Box>
+          <Flex justify="space-between" align={{ base: "flex-start", md: "center" }} gap={4} flexDir={{ base: "column", md: "row" }}>
+            <Box textAlign={{ base: "center", md: "left" }} w="full">
               <Heading size="lg" mb={2} color="textPrimary">
                 Theme Ripper
               </Heading>
@@ -408,33 +431,50 @@ export default function App() {
           </Flex>
 
           <Box as="form" onSubmit={handleSubmit} mt={8}>
-            <Stack direction={{ base: "column", md: "row" }} spacing={4}>
-              <Input
-                type="url"
-                required
-                aria-label="ThemeForest URL"
-                placeholder="https://themeforest.net/item/..."
-                value={themeUrl}
-                onChange={event => setThemeUrl(event.target.value)}
-                isDisabled={submission === "submitting"}
-                variant="filled"
-                focusBorderColor="accent"
-                bg="surfaceMuted"
-                color="textPrimary"
-                _placeholder={{ color: "textSecondary" }}
-              />
-          <Button
-            type="submit"
-            bg="#fe4155"
-            _hover={{ bg: "#ff6271" }}
-            _active={{ bg: "#d82d44" }}
-            color="white"
-            px={8}
-            isDisabled={!canSubmit}
-            isLoading={submission === "submitting"}
-          >
-            Start extraction
-          </Button>
+            <Stack spacing={3}>
+              <Button
+                onClick={() => {
+                  void handlePasteFromClipboard();
+                }}
+                variant="outline"
+                leftIcon={<FaClipboard />}
+                alignSelf={{ base: "stretch", md: "flex-start" }}
+                isDisabled={!canUseClipboard || submission === "submitting" || isPasting}
+                isLoading={isPasting}
+              >
+                Paste URL from clipboard
+              </Button>
+              <Stack direction={{ base: "column", md: "row" }} spacing={4} align="stretch">
+                <Input
+                  type="url"
+                  required
+                  aria-label="ThemeForest URL"
+                  placeholder="https://themeforest.net/item/..."
+                  value={themeUrl}
+                  onChange={event => setThemeUrl(event.target.value)}
+                  isDisabled={submission === "submitting"}
+                  variant="filled"
+                  focusBorderColor="accent"
+                  bg="surfaceMuted"
+                  color="textPrimary"
+                  _placeholder={{ color: "textSecondary" }}
+                  _focus={{ borderColor: "#fe4155", boxShadow: "0 0 0 1px #fe4155" }}
+                  _focusVisible={{ borderColor: "#fe4155", boxShadow: "0 0 0 1px #fe4155" }}
+                />
+                <Button
+                  type="submit"
+                  bg="#fe4155"
+                  _hover={{ bg: "#ff6271" }}
+                  _active={{ bg: "#d82d44" }}
+                  color="white"
+                  px={8}
+                  w={{ base: "full", md: "auto" }}
+                  isDisabled={!canSubmit}
+                  isLoading={submission === "submitting"}
+                >
+                  Start extraction
+                </Button>
+              </Stack>
             </Stack>
           </Box>
 
@@ -448,8 +488,13 @@ export default function App() {
           {job ? (
             <Box mt={8}>
               <Stack spacing={4} bg="surfaceMuted" borderRadius="lg" p={6} borderWidth="1px" borderColor="whiteAlpha.100">
-                <Flex align="center" justify="space-between" flexWrap="wrap" gap={3}>
-                  <Stack spacing={0}>
+                <Flex
+                  align={{ base: "stretch", md: "center" }}
+                  justify="space-between"
+                  flexDirection={{ base: "column", md: "row" }}
+                  gap={{ base: 4, md: 3 }}
+                >
+                  <Stack spacing={0} align={{ base: "flex-start", md: "stretch" }}>
                     <Text fontSize="sm" color="textSecondary" textTransform="uppercase" letterSpacing="wide">
                       Current job
                     </Text>
@@ -487,6 +532,7 @@ export default function App() {
                     }}
                     isLoading={isClearing}
                     isDisabled={isClearing}
+                    w={{ base: "full", md: "auto" }}
                   >
                     Clear current job
                   </Button>
@@ -531,7 +577,14 @@ export default function App() {
 
               {job.status === "succeeded" ? (
                 <Box mt={8}>
-                  <Heading size="sm" color="textSecondary" textTransform="uppercase" letterSpacing="wide" mb={3}>
+                  <Heading
+                    size="sm"
+                    color="textSecondary"
+                    textTransform="uppercase"
+                    letterSpacing="wide"
+                    mb={3}
+                    textAlign={{ base: "center", md: "left" }}
+                  >
                     Download
                   </Heading>
                   <Stack
@@ -554,7 +607,7 @@ export default function App() {
                     >
                       {isExpired ? "Download expired" : isDownloadStarting ? "Preparing download…" : "Download zip"}
                     </Button>
-                    <Stack spacing={1} color="textSecondary" fontSize="sm">
+                    <Stack spacing={1} color="textSecondary" fontSize="sm" textAlign={{ base: "center", sm: "left" }}>
                       {downloadSizeLabel ? <Text>{downloadSizeLabel}</Text> : null}
                       {expiresAt ? (
                         <Text>Link {isExpired ? "expired" : "expires"} {expiresLabel}</Text>
@@ -592,7 +645,7 @@ export default function App() {
         </Box>
       </Container>
 
-      <Box textAlign="center">
+      <Box textAlign="center" px={4}>
         <Button
           as={Link}
           leftIcon={<FaGithub />}

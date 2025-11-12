@@ -67,12 +67,15 @@ async def create_rip_job(
             "You already have a job running. Wait for it to finish or clear it before starting another.",
         )
 
-    job = job_store.create(str(payload.theme_url), session_id=session_id)
+    normalized_payload = payload.normalize()
+    job = job_store.create(str(normalized_payload.theme_url), session_id=session_id)
+    if normalized_payload.theme_url != payload.theme_url:
+        job_store.append_log(job.job_id, "info", "Normalized submitted URL to preview")
     job_store.append_log(job.job_id, "info", "Job queued")
 
     def task() -> None:
         try:
-            runner.run(job.job_id, str(payload.theme_url))
+            runner.run(job.job_id, str(normalized_payload.theme_url))
         except Exception:
             # Errors already recorded in job store; swallow to avoid choking executor.
             pass

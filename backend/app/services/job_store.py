@@ -52,12 +52,18 @@ class JobStore:
             job.updated_at = self._utcnow()
 
     def mark_succeeded(self, job_id: str, artifact_path: Path) -> None:
+        size: Optional[int] = None
+        if artifact_path.exists():
+            size = artifact_path.stat().st_size
+        if size is not None and size < 100 * 1024:
+            self.mark_failed(job_id, "Final archive was too small; preview may not be rippable")
+            return
         with self._lock:
             job = self._get(job_id)
             job.status = JobStatus.SUCCEEDED
             job.updated_at = self._utcnow()
             job.artifact_path = artifact_path
-            job.download_size = artifact_path.stat().st_size if artifact_path.exists() else None
+            job.download_size = size
             job.expires_at = job.updated_at + timedelta(seconds=self._ttl_seconds)
             job.download_token = self._tokens.issue_token(job_id, job.expires_at)
 
@@ -71,6 +77,7 @@ class JobStore:
             job.download_token = None
             job.download_token = self._tokens.issue_token(job_id, job.expires_at)
             job.cancel_requested = False
+            job.download_size = None
 
     def mark_cancelled(self, job_id: str) -> None:
         with self._lock:
